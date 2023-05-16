@@ -53,7 +53,22 @@ async function run() {
     const allUsersCollections = client
       .db("doctorsPortal")
       .collection("allUsers");
+    const allDoctorsCollections = client
+      .db("doctorsPortal")
+      .collection("allDoctors");
     //   ================== Database collections Here ==================
+    // custom middleware
+    // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    // NOTE: make sure you use verifyAdmin after verifyJWT
+    const verifyAdmin = async (req, res, next) => {
+      const decodedEmail = req.decoded.email;
+      const query = { email: decodedEmail };
+      const user = await allUsersCollections.findOne(query);
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     // Use Aggregate to query multiple collection nad then marge data
 
@@ -62,39 +77,54 @@ async function run() {
       const allUsers = await allUsersCollections.find(query).toArray();
       res.send(allUsers);
     });
-    app.get('/all_users/admin/:email', async (req, res) => {
+    app.get("/all_users/admin/:email", async (req, res) => {
       const email = req.params.email;
-      const query = {email};
+      const query = { email };
       const user = await allUsersCollections.findOne(query);
-      res.send({isAdmin: user?.role === 'admin'});
-    })
+      res.send({ isAdmin: user?.role === "admin" });
+    });
     app.post("/all_users", async (req, res) => {
       const userData = req.body;
       const result = await allUsersCollections.insertOne(userData);
       res.send(result);
     });
-    app.put("/all_users/admin/:id", verifyJWT, async (req, res) => {
-      const decodedEmail = req.decoded.email;
-      const query = { email: decodedEmail };
-      const user = await allUsersCollections.findOne(query);
-      if (user?.role !== "admin") {
-        return res.status(403).send({ message: "forbidden access" });
+    app.delete(
+      "/all_users/admin/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: ObjectId(id) };
+        const result = await allUsersCollections.deleteOne(filter);
+        if (result.deletedCount === 1) {
+          console.log("Successfully deleted one user.");
+        } else {
+          console.log("No documents matched the query. Deleted 0 documents.");
+        }
+        res.send(result);
       }
-      const id = req.params.id;
-      const filter = { _id: ObjectId(id) };
-      const options = { upsert: true };
-      const updateDoc = {
-        $set: {
-          role: "admin",
-        },
-      };
-      const result = await allUsersCollections.updateOne(
-        filter,
-        updateDoc,
-        options
-      );
-      res.send(result);
-    });
+    );
+    app.put(
+      "/all_users/admin/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: ObjectId(id) };
+        const options = { upsert: true };
+        const updateDoc = {
+          $set: {
+            role: "admin",
+          },
+        };
+        const result = await allUsersCollections.updateOne(
+          filter,
+          updateDoc,
+          options
+        );
+        res.send(result);
+      }
+    );
     app.get("/my_appointments", verifyJWT, async (req, res) => {
       const email = req.query.email;
       const decodedEmail = req.decoded.email;
@@ -130,6 +160,14 @@ async function run() {
       });
       res.send(services);
     });
+    app.get("/appointment_service_names", async (req, res) => {
+      const query = {};
+      const appointments = await appointmentServicesCollections
+        .find(query)
+        .project({ service: 1 })
+        .toArray();
+      res.send(appointments);
+    });
 
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
@@ -146,12 +184,38 @@ async function run() {
       const result = await bookingsCollections.insertOne(booking);
       res.send(result);
     });
+    app.post("/add_doctor", async (req, res) => {
+      const doctor = req.body;
+      const result = await allDoctorsCollections.insertOne(doctor);
+      res.send(result);
+    });
+    app.delete(
+      "/add_doctor/admin/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: ObjectId(id) };
+        const result = await allDoctorsCollections.deleteOne(filter);
+        if (result.deletedCount === 1) {
+          console.log("Successfully deleted one user.");
+        } else {
+          console.log("No documents matched the query. Deleted 0 documents.");
+        }
+        res.send(result);
+      }
+    );
+    app.get("/all_doctor", async (req, res) => {
+      const query = {};
+      const allDoctor = await allDoctorsCollections.find(query).toArray();
+      res.send(allDoctor);
+    });
     app.get("/jwt", async (req, res) => {
       const email = req.query.email;
       const query = { email: email };
       const user = await allUsersCollections.findOne(query);
       if (user) {
-        const token = jwt.sign({ email }, process.env.ACCESS_TOKEN,);
+        const token = jwt.sign({ email }, process.env.ACCESS_TOKEN);
         return res.send({ accessToken: token });
       }
       console.log(user);
